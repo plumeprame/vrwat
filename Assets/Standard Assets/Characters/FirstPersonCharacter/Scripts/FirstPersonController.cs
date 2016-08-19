@@ -13,7 +13,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
         [SerializeField] private bool m_IsWalking;
         [SerializeField] private float m_WalkSpeed;
         [SerializeField] private float m_RunSpeed;
-        [SerializeField] [Range(0f, 1f)] private float m_RunstepLenghten;
+        [SerializeField] [Range(0f, 5f)] private float m_RunstepLenghten;
         [SerializeField] private float m_JumpSpeed;
         [SerializeField] private float m_StickToGroundForce;
         [SerializeField] private float m_GravityMultiplier;
@@ -27,8 +27,10 @@ namespace UnityStandardAssets.Characters.FirstPerson
         [SerializeField] private AudioClip[] m_FootstepSounds;    // an array of footstep sounds that will be randomly selected from.
         [SerializeField] private AudioClip m_JumpSound;           // the sound played when character leaves the ground.
         [SerializeField] private AudioClip m_LandSound;           // the sound played when character touches back on ground.
+		[SerializeField] private float lookSpeed = 4;
 
         private Camera m_Camera;
+		private CameraRefocus _cameraRefocus;
         private bool m_Jump;
         private float m_YRotation;
         private Vector2 m_Input;
@@ -48,6 +50,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             m_CharacterController = GetComponent<CharacterController>();
             m_Camera = Camera.main;
             m_OriginalCameraPosition = m_Camera.transform.localPosition;
+			_cameraRefocus = new CameraRefocus(m_Camera, transform, m_Camera.transform.localPosition);
             m_FovKick.Setup(m_Camera);
             m_HeadBob.Setup(m_Camera, m_StepInterval);
             m_StepCycle = 0f;
@@ -102,7 +105,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             // get a normal for the surface that is being touched to move along it
             RaycastHit hitInfo;
             Physics.SphereCast(transform.position, m_CharacterController.radius, Vector3.down, out hitInfo,
-                               m_CharacterController.height/2f, ~0, QueryTriggerInteraction.Ignore);
+                               m_CharacterController.height/2f, Physics.AllLayers, QueryTriggerInteraction.Ignore);
             desiredMove = Vector3.ProjectOnPlane(desiredMove, hitInfo.normal).normalized;
 
             m_MoveDir.x = desiredMove.x*speed;
@@ -198,14 +201,16 @@ namespace UnityStandardAssets.Characters.FirstPerson
                 newCameraPosition.y = m_OriginalCameraPosition.y - m_JumpBob.Offset();
             }
             m_Camera.transform.localPosition = newCameraPosition;
+			_cameraRefocus.SetFocusPoint();
+
         }
 
 
         private void GetInput(out float speed)
         {
             // Read input
-            float horizontal = CrossPlatformInputManager.GetAxis("Horizontal");
-            float vertical = CrossPlatformInputManager.GetAxis("Vertical");
+			float horizontal = CrossPlatformInputManager.GetAxisRaw("Horizontal");
+			float vertical = CrossPlatformInputManager.GetAxisRaw("Vertical");
 
             bool waswalking = m_IsWalking;
 
@@ -234,10 +239,37 @@ namespace UnityStandardAssets.Characters.FirstPerson
         }
 
 
-        private void RotateView()
-        {
-            m_MouseLook.LookRotation (transform, m_Camera.transform);
-        }
+		private void RotateView()
+		{
+			//DCURRY added else for mobile input
+			#if !MOBILE_INPUT
+			Vector2 mouseInput = _mouseLook.Clamped(_yRotation, transform.localEulerAngles.y);
+
+			_camera.transform.localEulerAngles = new Vector3(-mouseInput.y, _camera.transform.localEulerAngles.y,
+			_camera.transform.localEulerAngles.z);
+			transform.localEulerAngles = new Vector3(0, mouseInput.x, 0);
+			#else
+			Vector2 mouseInput = new Vector2(CrossPlatformInputManager.GetAxisRaw("Horizontal-Look"),
+				CrossPlatformInputManager.GetAxisRaw("Vertical-Look"));
+
+			float camX = m_Camera.transform.localEulerAngles.x;
+
+			if((camX > 280 && camX <= 360) ||
+				(camX >= 0 && camX < 80) ||
+				(camX >= 80 && camX < 180 && mouseInput.y > 0) ||
+				(camX > 180 && camX <= 280 && mouseInput.y < 0))
+			{
+				m_Camera.transform.localEulerAngles += new Vector3(-mouseInput.y * lookSpeed * .7f, m_Camera.transform.localEulerAngles.y,
+					m_Camera.transform.localEulerAngles.z);
+			}
+
+			transform.localEulerAngles += new Vector3(0, mouseInput.x * lookSpeed, 0);
+			#endif
+			// handle the roation round the x axis on the camera
+
+			m_YRotation = mouseInput.y;
+			//_cameraRefocus.GetFocusPoint();
+		}
 
 
         private void OnControllerColliderHit(ControllerColliderHit hit)
